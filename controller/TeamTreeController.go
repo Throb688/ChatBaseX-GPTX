@@ -97,3 +97,9 @@ func (t TeamTreeController) GetAdminContext(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"Big": Big, "Small": Small})
 	return
 }
+
+func (t TeamTreeController) GetLevelReward(c *gin.Context) {
+	service.LevelReward()
+	c.JSON(http.StatusOK, gin.H{"message": "更新成功"})
+	return
+}

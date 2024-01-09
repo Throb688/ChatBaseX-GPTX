@@ -19,3 +19,7 @@ func GetAllPersonal() {
 func GetAdminContext(userID int64) (float64, float64) {
 	return dao.GetAdminContext(userID)
 }
+
+func LevelReward() {
+	dao.LevelReward()
+}

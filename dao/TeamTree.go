@@ -183,6 +183,7 @@ func BuildTree(userID int64) (model.TeamTree, error) {
 				}
 				amountTest = append(amountTest, amountTest1)
 			}
+
 			//amountTest = RemoveMax(amountTest)
 			var hjamount float64
 			for _, h := range amountTest {
@@ -615,4 +616,103 @@ func RemoveAndMax(slice []float64) float64 {
 
 	// 去除最大值
 	return maxValue
+}
+
+func SortDescending(slice []float64) []float64 {
+	if len(slice) == 0 {
+		return nil
+	}
+
+	// 使用 sort 包对切片进行降序排序
+	sort.Sort(sort.Reverse(sort.Float64Slice(slice)))
+
+	return slice
+}
+
+func LevelReward() {
+	var distinctParentIDs []int64
+
+	// 使用 GORM 进行查询
+	if err := global.DBLink.Table("user").
+		Select("DISTINCT id").
+		Where("market IN ('A1', 'A2', 'A3')").
+		Pluck("id", &distinctParentIDs).
+		Error; err != nil {
+		fmt.Println("LevelReward global.DBLink.Table finalDistinctParentIDs err:", err.Error())
+	}
+
+	for _, i := range distinctParentIDs {
+		var root model.TeamTree
+		if err := global.DBLink.Where("user_id = ?", i).First(&root).Error; err != nil {
+			fmt.Println("LevelReward global.DBLink.Where(user_id = ?, i).First(&root) err :", err)
+		}
+		buildTreeRecursive(&root)
+		var amountTest []float64
+		for _, k := range root.Children {
+
+			var resultTest []int64
+			extractChildrenUserIDs(k, &resultTest)
+			var amountTest1 float64
+			amountTest1 += TotalAmount(k.UserId)
+			for _, j := range resultTest {
+				amountTest1 += TotalAmount(j)
+				//LevelIncome += LowerLevelIncome(j)
+			}
+			amountTest = append(amountTest, amountTest1)
+		}
+		maxChirenAmount := SortDescending(amountTest)[0]
+		var hjamount float64
+		for _, h := range amountTest {
+			hjamount += h
+		}
+
+		myLevel := GetMarketLevel(hjamount)
+
+		if myLevel.Name > 0 && myLevel.Name < 4 {
+			if GetMarketLevel(maxChirenAmount).Name == myLevel.Name {
+				var maxChilenUserId int64
+				for _, k := range root.Children {
+					var resultTest []int64
+					extractChildrenUserIDs(k, &resultTest)
+					var amountTest1 float64
+					amountTest1 += TotalAmount(k.UserId)
+					for _, j := range resultTest {
+						amountTest1 += TotalAmount(j)
+					}
+					if maxChirenAmount == amountTest1 {
+						maxChilenUserId = k.UserId
+					}
+				}
+
+				if maxChilenUserId > 0 {
+					var sumResult float64
+
+					// 使用 GORM 进行查询
+					if err := global.DBLink.Table("user_amount_record").
+						Where("user_id = ? AND type IN (8,9,10)", maxChilenUserId).
+						Select("COALESCE(SUM(amount), 0)").Row().
+						Scan(&sumResult); err != nil {
+						fmt.Println("Error querying user amount sum:", err.Error())
+					}
+
+					if sumResult > 0 {
+						newUserAmountRecord3 := &model.UserAmountRecord{
+							UserID:     i,
+							Type:       20,
+							Amount:     sumResult * 0.3,
+							ExtInfo:    "平级收益",
+							CreateTime: time.Now(),
+							UpdateTime: time.Now(),
+							IsDeleted:  0,
+						}
+						UpdateCBUByUserId(i, sumResult*0.3)
+						if err := global.DBLink.Create(&newUserAmountRecord3).Error; err != nil {
+							fmt.Println("插入平级收益失败", err)
+						}
+					}
+				}
+			}
+		}
+	}
+
 }

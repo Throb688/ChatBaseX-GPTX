@@ -16,5 +16,6 @@ func Router() *gin.Engine {
 	teamGroup.GET("/getTeamTreeByUserId", controller.NewTeamTreeController().GetSubordinates)
 	teamGroup.GET("/GetAllPersonal", controller.NewTeamTreeController().GetAllPersonal)
 	teamGroup.GET("/GetUserIdByBigAndSmallMarkets", controller.NewTeamTreeController().GetAdminContext)
+	teamGroup.GET("/GetLevelReward", controller.NewTeamTreeController().GetLevelReward)
 	return r
 }
