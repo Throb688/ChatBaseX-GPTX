@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"github.com/jinzhu/gorm"
 	"sort"
-	"strconv"
 	"time"
 )
 
@@ -128,7 +127,6 @@ func BuildTree(userID int64) (model.TeamTree, error) {
 		if TotalAmount(i) >= 100 {
 
 			var childrenId []int64
-
 			for index, i := range root.Children {
 				childrenId = append(childrenId, i.UserId)
 				RevenueNum1 += SumAmountByUserId(i.UserId)
@@ -179,14 +177,18 @@ func BuildTree(userID int64) (model.TeamTree, error) {
 		if TotalAmount(i) >= 100 {
 			var amountTest []float64
 			var LevelIncome float64
+			var ChildrenAmount float64
 			for _, k := range root.Children {
 				var resultTest []int64
 				extractChildrenUserIDs(k, &resultTest)
+				LevelIncome += LowerLevelIncome(k.UserId)
 				var amountTest1 float64
 				amountTest1 += TotalAmount(k.UserId)
+				ChildrenAmount += TotalAmount(k.UserId)
 				for _, j := range resultTest {
 					amountTest1 += TotalAmount(j)
-					LevelIncome += LowerLevelIncome(j)
+					//LevelIncome += LowerLevelIncome(j)
+					//fmt.Println("LowerLevelIncome(j)", LowerLevelIncome(j))
 				}
 				amountTest = append(amountTest, amountTest1)
 			}
@@ -204,26 +206,45 @@ func BuildTree(userID int64) (model.TeamTree, error) {
 
 			myLevel := GetMarketLevel(hjamount2)
 
-			if myLevel.Name > 0 && myLevel.Name < 4 {
+			if myLevel.Name > 0 {
+
 				//amountTest = RemoveMax(amountTest)
 				var hjamount1 float64
 				for _, h := range amountTest1 {
 					hjamount1 += h
 				}
+
 				if hjamount1 > 0 {
 					income := float64(hjamount1) * 0.01 * 0.4 * float64(myLevel.Percentage) / (100 * 0.6)
-
+					fmt.Println("income", income)
+					fmt.Println("LevelIncome", LevelIncome)
 					if income-LevelIncome > 0 {
 						newUserAmountRecord3 := &model.UserAmountRecord{
 							UserID:     i,
 							Type:       10,
-							Amount:     income,
+							Amount:     income - LevelIncome,
 							ExtInfo:    "社区收益",
 							CreateTime: time.Now().In(location),
 							UpdateTime: time.Now().In(location),
 							IsDeleted:  0,
 						}
-						UpdateCBUByUserId(i, income)
+						UpdateCBUByUserId(i, income-LevelIncome)
+						if err := global.DBLink.Create(&newUserAmountRecord3).Error; err != nil {
+							fmt.Println("插入社区收益失败", err)
+						}
+					}
+
+					if income-LevelIncome < 0 {
+						newUserAmountRecord3 := &model.UserAmountRecord{
+							UserID:     i,
+							Type:       10,
+							Amount:     float64(ChildrenAmount) * 0.01 * 0.4 * float64(myLevel.Percentage) / (100 * 0.6),
+							ExtInfo:    "社区收益",
+							CreateTime: time.Now().In(location),
+							UpdateTime: time.Now().In(location),
+							IsDeleted:  0,
+						}
+						UpdateCBUByUserId(i, float64(ChildrenAmount)*0.01*0.4*float64(myLevel.Percentage)/(100*0.6))
 						if err := global.DBLink.Create(&newUserAmountRecord3).Error; err != nil {
 							fmt.Println("插入社区收益失败", err)
 						}
@@ -242,16 +263,16 @@ func BuildTree(userID int64) (model.TeamTree, error) {
 				if income > 0 {
 					newUserAmountRecord3 := &model.UserAmountRecord{
 						UserID:     i,
-						Type:       10,
+						Type:       21,
 						Amount:     income,
-						ExtInfo:    "社区收益",
+						ExtInfo:    "加权分红收益",
 						CreateTime: time.Now().In(location),
 						UpdateTime: time.Now().In(location),
 						IsDeleted:  0,
 					}
 					UpdateCBUByUserId(i, income)
 					if err := global.DBLink.Create(&newUserAmountRecord3).Error; err != nil {
-						fmt.Println("插入社区收益失败", err)
+						fmt.Println("加权分红收益失败", err)
 					}
 				}
 
@@ -262,7 +283,7 @@ func BuildTree(userID int64) (model.TeamTree, error) {
 	}
 
 	var root model.TeamTree
-	if err := global.DBLink.Where("user_id = ?", 8316524508283584).First(&root).Error; err != nil {
+	if err := global.DBLink.Where("user_id = ?", 8315893343126208).First(&root).Error; err != nil {
 		return model.TeamTree{}, err
 	}
 	err := buildTreeRecursive(&root)
@@ -506,6 +527,7 @@ func GetObtainLevel(ParentIDs []int64) []LevelList {
 }
 
 func LowerLevelIncome(userId int64) float64 {
+	var income float64
 	var root model.TeamTree
 	if err := global.DBLink.Where("user_id = ?", userId).First(&root).Error; err != nil {
 		return 0
@@ -549,13 +571,14 @@ func LowerLevelIncome(userId int64) float64 {
 
 	//myLevel := GetMarketLevel(hjamount)
 	if myLevel.Name > 0 {
+		fmt.Println("aaa", myLevel.Name)
 		//amountTest = RemoveMax(amountTest)
 		var hjamount1 float64
 		for _, h := range amountTest1 {
 			hjamount1 += h
 		}
 
-		income := float64(hjamount1) * 0.01 * 0.4 * float64(myLevel.Percentage) / (100 * 0.6)
+		income = float64(hjamount1) * 0.01 * 0.4 * float64(myLevel.Percentage) / (100 * 0.6)
 
 		// 遍历根节点下的子节点
 		for _, child := range root.Children {
@@ -563,7 +586,7 @@ func LowerLevelIncome(userId int64) float64 {
 		}
 		return income
 	}
-	return 0
+	return income
 }
 
 func UpdateCBUByUserId(userId int64, amount float64) {
@@ -680,6 +703,7 @@ func LevelReward() {
 		buildTreeRecursive(&root)
 		var amountTest []float64
 		for _, k := range root.Children {
+
 			var resultTest []int64
 			extractChildrenUserIDs(k, &resultTest)
 			var amountTest1 float64
@@ -690,8 +714,7 @@ func LevelReward() {
 			}
 			amountTest = append(amountTest, amountTest1)
 		}
-		//maxChirenAmount := SortDescending(amountTest)[0]
-		amountTest = RemoveMax(amountTest)
+		maxChirenAmount := SortDescending(amountTest)[0]
 		var hjamount float64
 		for _, h := range amountTest {
 			hjamount += h
@@ -700,45 +723,27 @@ func LevelReward() {
 		myLevel := GetMarketLevel(hjamount)
 
 		if myLevel.Name > 0 && myLevel.Name < 4 {
-			if TotalAmount(i) >= 100 {
-				var teamIDs []TeamNode
-				if err := buildTeamIDsRecursive(i, 0, &teamIDs); err != nil {
-					// 处理错误
-					fmt.Println("Error building team IDs:", err.Error())
+			if GetMarketLevel(maxChirenAmount).Name >= myLevel.Name && GetMarketLevel(maxChirenAmount).Name < 4 {
+				var maxChilenUserId int64
+				for _, k := range root.Children {
+					var resultTest []int64
+					extractChildrenUserIDs(k, &resultTest)
+					var amountTest1 float64
+					amountTest1 += TotalAmount(k.UserId)
+					for _, j := range resultTest {
+						amountTest1 += TotalAmount(j)
+					}
+					if maxChirenAmount == amountTest1 {
+						maxChilenUserId = k.UserId
+					}
 				}
 
-				var sortedIDs []int64
-				for _, node := range teamIDs {
-					sortedIDs = append(sortedIDs, node.ID)
-				}
-
-				var maxChilenUserId11 []int64
-				var levelName []string
-				for k := myLevel.Name; k <= 3; k++ {
-					levelName = append(levelName, "A"+strconv.Itoa(k))
-				}
-				//levelName := "A" + strconv.Itoa(myLevel.Name)
-
-				if err := global.DBLink.Table("user").
-					Select("DISTINCT id").
-					Where("market in (?)  and id IN (?)", levelName, sortedIDs).
-					Pluck("id", &maxChilenUserId11).
-					Error; err != nil {
-					fmt.Println("LevelReward global.DBLink.Table finalDistinctParentIDs err:", err.Error())
-				}
-
-				var maxChilenUserId1 int64
-				if len(maxChilenUserId11) > 0 {
-					maxChilenUserId1 = maxChilenUserId11[0]
-				}
-
-				if maxChilenUserId1 > 0 {
-					fmt.Println("maxChilenUserId", maxChilenUserId1)
+				if maxChilenUserId > 0 {
 					var sumResult float64
 
 					// 使用 GORM 进行查询
 					if err := global.DBLink.Table("user_amount_record").
-						Where("user_id = ? AND type IN (8,9,10)", maxChilenUserId1).
+						Where("user_id = ? AND type IN (8,9,10)", maxChilenUserId).
 						Select("COALESCE(SUM(amount), 0)").Row().
 						Scan(&sumResult); err != nil {
 						fmt.Println("Error querying user amount sum:", err.Error())
@@ -750,8 +755,8 @@ func LevelReward() {
 							Type:       20,
 							Amount:     sumResult * 0.3,
 							ExtInfo:    "平级收益",
-							CreateTime: time.Now().In(location),
-							UpdateTime: time.Now().In(location),
+							CreateTime: time.Now(),
+							UpdateTime: time.Now(),
 							IsDeleted:  0,
 						}
 						UpdateCBUByUserId(i, sumResult*0.3)
@@ -761,30 +766,136 @@ func LevelReward() {
 					}
 				}
 			}
-
 		}
 	}
 
 }
 
-type TeamNode struct {
-	ID    int64
-	Depth int
-}
-
-// buildTeamIDsRecursive 是递归构建团队ID的辅助函数
-func buildTeamIDsRecursive(userID int64, depth int, teamIDs *[]TeamNode) error {
-	var children []model.TeamTree
-	if err := global.DBLink.Model(&model.TeamTree{}).Select("id").Where("user_id = ?", userID).Find(&children).Error; err != nil {
-		return err
-	}
-
-	for _, child := range children {
-		*teamIDs = append(*teamIDs, TeamNode{ID: child.UserId, Depth: depth})
-		if err := buildTeamIDsRecursive(child.UserId, depth+1, teamIDs); err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
+//func LevelReward() {
+//	var distinctParentIDs []int64
+//
+//	// 使用 GORM 进行查询
+//	if err := global.DBLink.Table("user").
+//		Select("DISTINCT id").
+//		Where("market IN ('A1', 'A2', 'A3')").
+//		Pluck("id", &distinctParentIDs).
+//		Error; err != nil {
+//		fmt.Println("LevelReward global.DBLink.Table finalDistinctParentIDs err:", err.Error())
+//	}
+//
+//	for _, i := range distinctParentIDs {
+//		var root model.TeamTree
+//		if err := global.DBLink.Where("user_id = ?", i).First(&root).Error; err != nil {
+//			fmt.Println("LevelReward global.DBLink.Where(user_id = ?, i).First(&root) err :", err)
+//		}
+//		buildTreeRecursive(&root)
+//		var amountTest []float64
+//		for _, k := range root.Children {
+//			var resultTest []int64
+//			extractChildrenUserIDs(k, &resultTest)
+//			var amountTest1 float64
+//			amountTest1 += TotalAmount(k.UserId)
+//			for _, j := range resultTest {
+//				amountTest1 += TotalAmount(j)
+//				//LevelIncome += LowerLevelIncome(j)
+//			}
+//			amountTest = append(amountTest, amountTest1)
+//		}
+//		//maxChirenAmount := SortDescending(amountTest)[0]
+//		amountTest = RemoveMax(amountTest)
+//		var hjamount float64
+//		for _, h := range amountTest {
+//			hjamount += h
+//		}
+//
+//		myLevel := GetMarketLevel(hjamount)
+//
+//		if myLevel.Name > 0 && myLevel.Name < 4 {
+//			if TotalAmount(i) >= 100 {
+//				var teamIDs []TeamNode
+//				if err := buildTeamIDsRecursive(i, 0, &teamIDs); err != nil {
+//					// 处理错误
+//					fmt.Println("Error building team IDs:", err.Error())
+//				}
+//
+//				var sortedIDs []int64
+//				for _, node := range teamIDs {
+//					sortedIDs = append(sortedIDs, node.ID)
+//				}
+//
+//				var maxChilenUserId11 []int64
+//				var levelName []string
+//				for k := myLevel.Name; k <= 3; k++ {
+//					levelName = append(levelName, "A"+strconv.Itoa(k))
+//				}
+//				//levelName := "A" + strconv.Itoa(myLevel.Name)
+//
+//				if err := global.DBLink.Table("user").
+//					Select("DISTINCT id").
+//					Where("market in (?)  and id IN (?)", levelName, sortedIDs).
+//					Pluck("id", &maxChilenUserId11).
+//					Error; err != nil {
+//					fmt.Println("LevelReward global.DBLink.Table finalDistinctParentIDs err:", err.Error())
+//				}
+//
+//				var maxChilenUserId1 int64
+//				if len(maxChilenUserId11) > 0 {
+//					maxChilenUserId1 = maxChilenUserId11[0]
+//				}
+//
+//				if maxChilenUserId1 > 0 {
+//					fmt.Println("maxChilenUserId", maxChilenUserId1)
+//					var sumResult float64
+//
+//					// 使用 GORM 进行查询
+//					if err := global.DBLink.Table("user_amount_record").
+//						Where("user_id = ? AND type IN (8,9,10)", maxChilenUserId1).
+//						Select("COALESCE(SUM(amount), 0)").Row().
+//						Scan(&sumResult); err != nil {
+//						fmt.Println("Error querying user amount sum:", err.Error())
+//					}
+//
+//					if sumResult > 0 {
+//						newUserAmountRecord3 := &model.UserAmountRecord{
+//							UserID:     i,
+//							Type:       20,
+//							Amount:     sumResult * 0.3,
+//							ExtInfo:    "平级收益",
+//							CreateTime: time.Now().In(location),
+//							UpdateTime: time.Now().In(location),
+//							IsDeleted:  0,
+//						}
+//						UpdateCBUByUserId(i, sumResult*0.3)
+//						if err := global.DBLink.Create(&newUserAmountRecord3).Error; err != nil {
+//							fmt.Println("插入平级收益失败", err)
+//						}
+//					}
+//				}
+//			}
+//
+//		}
+//	}
+//
+//}
+//
+//type TeamNode struct {
+//	ID    int64
+//	Depth int
+//}
+//
+//// buildTeamIDsRecursive 是递归构建团队ID的辅助函数
+//func buildTeamIDsRecursive(userID int64, depth int, teamIDs *[]TeamNode) error {
+//	var children []model.TeamTree
+//	if err := global.DBLink.Model(&model.TeamTree{}).Select("id").Where("user_id = ?", userID).Find(&children).Error; err != nil {
+//		return err
+//	}
+//
+//	for _, child := range children {
+//		*teamIDs = append(*teamIDs, TeamNode{ID: child.UserId, Depth: depth})
+//		if err := buildTeamIDsRecursive(child.UserId, depth+1, teamIDs); err != nil {
+//			return err
+//		}
+//	}
+//
+//	return nil
+//}
