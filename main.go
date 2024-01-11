@@ -17,5 +17,6 @@ func init() {
 
 func main() {
 	r := router.Router()
+	//"localhost:9090"
 	r.Run(":9090")
 }

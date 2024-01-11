@@ -11,6 +11,12 @@ import (
 	"time"
 )
 
+var location *time.Location
+
+func init() {
+	location, _ = time.LoadLocation("Asia/Shanghai")
+}
+
 var MarketLevels = []model.Level{
 	{1, 5000, 15},
 	{2, 20000, 25},
@@ -47,7 +53,7 @@ func JoinTeam(userID, ParentId int64) (int64, error) {
 	if result := global.DBLink.First(existingTeam1, "user_id = ?", ParentId); result.RowsAffected == 0 {
 		// 用户不存在，新增 TeamTree 记录
 		newTeam1 := &model.TeamTree{
-			CreateTime: time.Now().Format("2006-01-02 15:04:05"),
+			CreateTime: time.Now().In(location).Format("2006-01-02 15:04:05"),
 			ParentId:   0,
 			UserId:     ParentId,
 		}
@@ -73,7 +79,7 @@ func JoinTeam(userID, ParentId int64) (int64, error) {
 	} else {
 		// 用户不存在，新增 TeamTree 记录
 		newTeam := &model.TeamTree{
-			CreateTime: time.Now().Format("2006-01-02 15:04:05"),
+			CreateTime: time.Now().In(location).Format("2006-01-02 15:04:05"),
 			ParentId:   ParentId,
 			UserId:     userID,
 		}
@@ -139,8 +145,8 @@ func BuildTree(userID int64) (model.TeamTree, error) {
 				Type:       8,
 				Amount:     RevenueNum1 * 0.1,
 				ExtInfo:    "直推收益",
-				CreateTime: time.Now(),
-				UpdateTime: time.Now(),
+				CreateTime: time.Now().In(location),
+				UpdateTime: time.Now().In(location),
 				IsDeleted:  0,
 			}
 
@@ -149,8 +155,8 @@ func BuildTree(userID int64) (model.TeamTree, error) {
 				Type:       9,
 				Amount:     RevenueNum2 * 0.05,
 				ExtInfo:    "间推收益",
-				CreateTime: time.Now(),
-				UpdateTime: time.Now(),
+				CreateTime: time.Now().In(location),
+				UpdateTime: time.Now().In(location),
 				IsDeleted:  0,
 			}
 
@@ -172,7 +178,7 @@ func BuildTree(userID int64) (model.TeamTree, error) {
 
 		if TotalAmount(i) >= 100 {
 			var amountTest []float64
-			//var LevelIncome float64
+			var LevelIncome float64
 			for _, k := range root.Children {
 				var resultTest []int64
 				extractChildrenUserIDs(k, &resultTest)
@@ -180,7 +186,7 @@ func BuildTree(userID int64) (model.TeamTree, error) {
 				amountTest1 += TotalAmount(k.UserId)
 				for _, j := range resultTest {
 					amountTest1 += TotalAmount(j)
-					//LevelIncome += LowerLevelIncome(j)
+					LevelIncome += LowerLevelIncome(j)
 				}
 				amountTest = append(amountTest, amountTest1)
 			}
@@ -207,18 +213,20 @@ func BuildTree(userID int64) (model.TeamTree, error) {
 				if hjamount1 > 0 {
 					income := float64(hjamount1) * 0.01 * 0.4 * float64(myLevel.Percentage) / (100 * 0.6)
 
-					newUserAmountRecord3 := &model.UserAmountRecord{
-						UserID:     i,
-						Type:       10,
-						Amount:     income,
-						ExtInfo:    "社区收益",
-						CreateTime: time.Now(),
-						UpdateTime: time.Now(),
-						IsDeleted:  0,
-					}
-					UpdateCBUByUserId(i, income)
-					if err := global.DBLink.Create(&newUserAmountRecord3).Error; err != nil {
-						fmt.Println("插入社区收益失败", err)
+					if income-LevelIncome > 0 {
+						newUserAmountRecord3 := &model.UserAmountRecord{
+							UserID:     i,
+							Type:       10,
+							Amount:     income,
+							ExtInfo:    "社区收益",
+							CreateTime: time.Now().In(location),
+							UpdateTime: time.Now().In(location),
+							IsDeleted:  0,
+						}
+						UpdateCBUByUserId(i, income)
+						if err := global.DBLink.Create(&newUserAmountRecord3).Error; err != nil {
+							fmt.Println("插入社区收益失败", err)
+						}
 					}
 				}
 
@@ -229,7 +237,7 @@ func BuildTree(userID int64) (model.TeamTree, error) {
 				for _, l := range LevelListAccount[myLevel.Name-1].LevelPersonal {
 					levelAmount += l.Amount
 				}
-				income := incomeIndex * hjamount / levelAmount
+				income := incomeIndex * hjamount2 / levelAmount
 				//sumAmount := income - LevelIncome
 				if income > 0 {
 					newUserAmountRecord3 := &model.UserAmountRecord{
@@ -237,8 +245,8 @@ func BuildTree(userID int64) (model.TeamTree, error) {
 						Type:       10,
 						Amount:     income,
 						ExtInfo:    "社区收益",
-						CreateTime: time.Now(),
-						UpdateTime: time.Now(),
+						CreateTime: time.Now().In(location),
+						UpdateTime: time.Now().In(location),
 						IsDeleted:  0,
 					}
 					UpdateCBUByUserId(i, income)
@@ -306,7 +314,7 @@ func SumAmountByUserId(userId int64) float64 {
 	//	Row()
 
 	// 获取今天的开始时间和结束时间
-	now := time.Now()
+	now := time.Now().In(location)
 	startOfDay := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
 	endOfDay := startOfDay.Add(24 * time.Hour)
 
@@ -459,6 +467,7 @@ func GetObtainLevel(ParentIDs []int64) []LevelList {
 			result := global.DBLink.Table("user").
 				Where("id = ?", i).
 				Updates(map[string]interface{}{"market": "A4"})
+			LevelListAccount[3].LevelPersonal = append(LevelListAccount[3].LevelPersonal, LevelsAmount{UserId: i, Amount: hjamount})
 			if result.Error != nil {
 				fmt.Println("UpdateCBUByUserId err：", result.Error.Error())
 			}
@@ -467,6 +476,7 @@ func GetObtainLevel(ParentIDs []int64) []LevelList {
 			result := global.DBLink.Table("user").
 				Where("id = ?", i).
 				Updates(map[string]interface{}{"market": "A5"})
+			LevelListAccount[4].LevelPersonal = append(LevelListAccount[4].LevelPersonal, LevelsAmount{UserId: i, Amount: hjamount})
 			if result.Error != nil {
 				fmt.Println("UpdateCBUByUserId err：", result.Error.Error())
 			}
@@ -475,6 +485,7 @@ func GetObtainLevel(ParentIDs []int64) []LevelList {
 			result := global.DBLink.Table("user").
 				Where("id = ?", i).
 				Updates(map[string]interface{}{"market": "A6"})
+			LevelListAccount[5].LevelPersonal = append(LevelListAccount[5].LevelPersonal, LevelsAmount{UserId: i, Amount: hjamount})
 			if result.Error != nil {
 				fmt.Println("UpdateCBUByUserId err：", result.Error.Error())
 			}
@@ -483,6 +494,7 @@ func GetObtainLevel(ParentIDs []int64) []LevelList {
 			result := global.DBLink.Table("user").
 				Where("id = ?", i).
 				Updates(map[string]interface{}{"market": "A7"})
+			LevelListAccount[6].LevelPersonal = append(LevelListAccount[6].LevelPersonal, LevelsAmount{UserId: i, Amount: hjamount})
 			if result.Error != nil {
 				fmt.Println("UpdateCBUByUserId err：", result.Error.Error())
 			}
@@ -493,53 +505,66 @@ func GetObtainLevel(ParentIDs []int64) []LevelList {
 
 }
 
-//func LowerLevelIncome(userId int64) float64 {
-//	var root model.TeamTree
-//	if err := global.DBLink.Where("user_id = ?", userId).First(&root).Error; err != nil {
-//		return 0
-//	}
-//
-//	err := buildTreeRecursive(&root)
-//	if err != nil {
-//		return 0
-//	}
-//
-//	// 计算根节点的收入
-//	var amountTest []float64
-//	for _, k := range root.Children {
-//		var resultTest []int64
-//		extractChildrenUserIDs(k, &resultTest)
-//		var amountTest1 float64
-//		amountTest1 += TotalAmount(k.UserId)
-//		for _, j := range resultTest {
-//			amountTest1 += TotalAmount(j)
-//		}
-//		amountTest = append(amountTest, amountTest1)
-//	}
-//	amountTest = RemoveMax(amountTest)
-//	var hjamount float64
-//	for _, h := range amountTest {
-//		hjamount += h
-//	}
-//
-//	myLevel := GetMarketLevel(hjamount)
-//	if myLevel.Name > 0 {
-//		amountTest = RemoveMax(amountTest)
-//		var hjamount1 float64
-//		for _, h := range amountTest {
-//			hjamount1 += h
-//		}
-//
-//		income := float64(hjamount1) * 0.01 * 0.4 * float64(myLevel.Percentage) / (100 * 0.6)
-//
-//		// 遍历根节点下的子节点
-//		for _, child := range root.Children {
-//			income += LowerLevelIncome(child.UserId)
-//		}
-//		return income
-//	}
-//	return 0
-//}
+func LowerLevelIncome(userId int64) float64 {
+	var root model.TeamTree
+	if err := global.DBLink.Where("user_id = ?", userId).First(&root).Error; err != nil {
+		return 0
+	}
+
+	err := buildTreeRecursive(&root)
+	if err != nil {
+		return 0
+	}
+
+	// 计算根节点的收入
+	var amountTest []float64
+	for _, k := range root.Children {
+		var resultTest []int64
+		extractChildrenUserIDs(k, &resultTest)
+		var amountTest1 float64
+		amountTest1 += TotalAmount(k.UserId)
+		for _, j := range resultTest {
+			amountTest1 += TotalAmount(j)
+		}
+		amountTest = append(amountTest, amountTest1)
+	}
+	//amountTest = RemoveMax(amountTest)
+	//var hjamount float64
+	//for _, h := range amountTest {
+	//	hjamount += h
+	//}
+
+	amountTest1 := amountTest
+	//amountTest = RemoveMax(amountTest)
+	var hjamount float64
+	for _, h := range amountTest {
+		hjamount += h
+	}
+	var hjamount2 float64
+	for _, h := range RemoveMax(amountTest) {
+		hjamount2 += h
+	}
+
+	myLevel := GetMarketLevel(hjamount2)
+
+	//myLevel := GetMarketLevel(hjamount)
+	if myLevel.Name > 0 {
+		//amountTest = RemoveMax(amountTest)
+		var hjamount1 float64
+		for _, h := range amountTest1 {
+			hjamount1 += h
+		}
+
+		income := float64(hjamount1) * 0.01 * 0.4 * float64(myLevel.Percentage) / (100 * 0.6)
+
+		// 遍历根节点下的子节点
+		for _, child := range root.Children {
+			income += LowerLevelIncome(child.UserId)
+		}
+		return income
+	}
+	return 0
+}
 
 func UpdateCBUByUserId(userId int64, amount float64) {
 	result := global.DBLink.Table("user").
@@ -675,58 +700,64 @@ func LevelReward() {
 		myLevel := GetMarketLevel(hjamount)
 
 		if myLevel.Name > 0 && myLevel.Name < 4 {
-			var teamIDs []TeamNode
-			if err := buildTeamIDsRecursive(i, 0, &teamIDs); err != nil {
-				// 处理错误
-				fmt.Println("Error building team IDs:", err.Error())
-			}
-
-			var sortedIDs []int64
-			for _, node := range teamIDs {
-				sortedIDs = append(sortedIDs, node.ID)
-			}
-
-			var maxChilenUserId11 []int64
-			levelName := "A" + strconv.Itoa(myLevel.Name)
-
-			if err := global.DBLink.Table("user").
-				Select("DISTINCT id").
-				Where("market = ? and id IN (?)", levelName, sortedIDs).
-				Pluck("id", &maxChilenUserId11).
-				Error; err != nil {
-				fmt.Println("LevelReward global.DBLink.Table finalDistinctParentIDs err:", err.Error())
-			}
-
-			var maxChilenUserId1 int64
-			if len(maxChilenUserId11) > 0 {
-				maxChilenUserId1 = maxChilenUserId11[0]
-			}
-
-			if maxChilenUserId1 > 0 {
-				fmt.Println("maxChilenUserId", maxChilenUserId1)
-				var sumResult float64
-
-				// 使用 GORM 进行查询
-				if err := global.DBLink.Table("user_amount_record").
-					Where("user_id = ? AND type IN (8,9,10)", maxChilenUserId1).
-					Select("COALESCE(SUM(amount), 0)").Row().
-					Scan(&sumResult); err != nil {
-					fmt.Println("Error querying user amount sum:", err.Error())
+			if TotalAmount(i) >= 100 {
+				var teamIDs []TeamNode
+				if err := buildTeamIDsRecursive(i, 0, &teamIDs); err != nil {
+					// 处理错误
+					fmt.Println("Error building team IDs:", err.Error())
 				}
 
-				if sumResult > 0 {
-					newUserAmountRecord3 := &model.UserAmountRecord{
-						UserID:     i,
-						Type:       20,
-						Amount:     sumResult * 0.3,
-						ExtInfo:    "平级收益",
-						CreateTime: time.Now(),
-						UpdateTime: time.Now(),
-						IsDeleted:  0,
+				var sortedIDs []int64
+				for _, node := range teamIDs {
+					sortedIDs = append(sortedIDs, node.ID)
+				}
+
+				var maxChilenUserId11 []int64
+				var levelName []string
+				for k := myLevel.Name; k <= 3; k++ {
+					levelName = append(levelName, "A"+strconv.Itoa(k))
+				}
+				//levelName := "A" + strconv.Itoa(myLevel.Name)
+
+				if err := global.DBLink.Table("user").
+					Select("DISTINCT id").
+					Where("market in (?)  and id IN (?)", levelName, sortedIDs).
+					Pluck("id", &maxChilenUserId11).
+					Error; err != nil {
+					fmt.Println("LevelReward global.DBLink.Table finalDistinctParentIDs err:", err.Error())
+				}
+
+				var maxChilenUserId1 int64
+				if len(maxChilenUserId11) > 0 {
+					maxChilenUserId1 = maxChilenUserId11[0]
+				}
+
+				if maxChilenUserId1 > 0 {
+					fmt.Println("maxChilenUserId", maxChilenUserId1)
+					var sumResult float64
+
+					// 使用 GORM 进行查询
+					if err := global.DBLink.Table("user_amount_record").
+						Where("user_id = ? AND type IN (8,9,10)", maxChilenUserId1).
+						Select("COALESCE(SUM(amount), 0)").Row().
+						Scan(&sumResult); err != nil {
+						fmt.Println("Error querying user amount sum:", err.Error())
 					}
-					UpdateCBUByUserId(i, sumResult*0.3)
-					if err := global.DBLink.Create(&newUserAmountRecord3).Error; err != nil {
-						fmt.Println("插入平级收益失败", err)
+
+					if sumResult > 0 {
+						newUserAmountRecord3 := &model.UserAmountRecord{
+							UserID:     i,
+							Type:       20,
+							Amount:     sumResult * 0.3,
+							ExtInfo:    "平级收益",
+							CreateTime: time.Now().In(location),
+							UpdateTime: time.Now().In(location),
+							IsDeleted:  0,
+						}
+						UpdateCBUByUserId(i, sumResult*0.3)
+						if err := global.DBLink.Create(&newUserAmountRecord3).Error; err != nil {
+							fmt.Println("插入平级收益失败", err)
+						}
 					}
 				}
 			}
