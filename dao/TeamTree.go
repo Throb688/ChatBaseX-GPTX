@@ -181,7 +181,7 @@ func BuildTree(userID int64) (model.TeamTree, error) {
 			for _, k := range root.Children {
 				var resultTest []int64
 				extractChildrenUserIDs(k, &resultTest)
-				LevelIncome += LowerLevelIncome(k.UserId)
+				//LevelIncome += LowerLevelIncome(k.UserId)
 				var amountTest1 float64
 				amountTest1 += TotalAmount(k.UserId)
 				ChildrenAmount += TotalAmount(k.UserId)
@@ -213,44 +213,45 @@ func BuildTree(userID int64) (model.TeamTree, error) {
 				for _, h := range amountTest1 {
 					hjamount1 += h
 				}
-
-				if hjamount1 > 0 {
-					income := float64(hjamount1) * 0.01 * 0.4 * float64(myLevel.Percentage) / (100 * 0.6)
-					fmt.Println("income", income)
-					fmt.Println("LevelIncome", LevelIncome)
-					if income-LevelIncome > 0 {
-						newUserAmountRecord3 := &model.UserAmountRecord{
-							UserID:     i,
-							Type:       10,
-							Amount:     income - LevelIncome,
-							ExtInfo:    "社区收益",
-							CreateTime: time.Now().In(location),
-							UpdateTime: time.Now().In(location),
-							IsDeleted:  0,
-						}
-						UpdateCBUByUserId(i, income-LevelIncome)
-						if err := global.DBLink.Create(&newUserAmountRecord3).Error; err != nil {
-							fmt.Println("插入社区收益失败", err)
-						}
+				income := float64(hjamount1) * 0.01 * 0.4 * float64(myLevel.Percentage) / (100 * 0.6)
+				var resultTest []int64
+				for _, k := range root.Children {
+					extractChildrenUserIDs(k, &resultTest)
+				}
+				LevelIncome = LowerLevelIncomeByParentId(resultTest, myLevel.Name)
+				fmt.Println("income", income)
+				fmt.Println("LevelIncome", LevelIncome)
+				if income-LevelIncome > 0 {
+					newUserAmountRecord3 := &model.UserAmountRecord{
+						UserID:     i,
+						Type:       10,
+						Amount:     income - LevelIncome,
+						ExtInfo:    "社区收益",
+						CreateTime: time.Now().In(location),
+						UpdateTime: time.Now().In(location),
+						IsDeleted:  0,
 					}
-
-					if income-LevelIncome < 0 {
-						newUserAmountRecord3 := &model.UserAmountRecord{
-							UserID:     i,
-							Type:       10,
-							Amount:     float64(ChildrenAmount) * 0.01 * 0.4 * float64(myLevel.Percentage) / (100 * 0.6),
-							ExtInfo:    "社区收益",
-							CreateTime: time.Now().In(location),
-							UpdateTime: time.Now().In(location),
-							IsDeleted:  0,
-						}
-						UpdateCBUByUserId(i, float64(ChildrenAmount)*0.01*0.4*float64(myLevel.Percentage)/(100*0.6))
-						if err := global.DBLink.Create(&newUserAmountRecord3).Error; err != nil {
-							fmt.Println("插入社区收益失败", err)
-						}
+					UpdateCBUByUserId(i, income-LevelIncome)
+					if err := global.DBLink.Create(&newUserAmountRecord3).Error; err != nil {
+						fmt.Println("插入社区收益失败", err)
 					}
 				}
 
+				if income-LevelIncome < 0 {
+					newUserAmountRecord3 := &model.UserAmountRecord{
+						UserID:     i,
+						Type:       10,
+						Amount:     float64(ChildrenAmount) * 0.01 * 0.4 * float64(myLevel.Percentage) / (100 * 0.6),
+						ExtInfo:    "社区收益",
+						CreateTime: time.Now().In(location),
+						UpdateTime: time.Now().In(location),
+						IsDeleted:  0,
+					}
+					UpdateCBUByUserId(i, float64(ChildrenAmount)*0.01*0.4*float64(myLevel.Percentage)/(100*0.6))
+					if err := global.DBLink.Create(&newUserAmountRecord3).Error; err != nil {
+						fmt.Println("插入社区收益失败", err)
+					}
+				}
 			}
 
 			if myLevel.Name >= 4 {
@@ -769,6 +770,61 @@ func LevelReward() {
 		}
 	}
 
+}
+
+// 获取子节点等级比父节点小的收益合计
+func LowerLevelIncomeByParentId(userId []int64, LevelName int) float64 {
+	var income float64
+	for _, i := range userId {
+		var root model.TeamTree
+		if err := global.DBLink.Where("user_id = ?", i).First(&root).Error; err != nil {
+			return 0
+		}
+
+		err := buildTreeRecursive(&root)
+		if err != nil {
+			return 0
+		}
+
+		// 计算根节点的收入
+		var amountTest []float64
+		for _, k := range root.Children {
+			var resultTest []int64
+			extractChildrenUserIDs(k, &resultTest)
+			var amountTest1 float64
+			amountTest1 += TotalAmount(k.UserId)
+			for _, j := range resultTest {
+				amountTest1 += TotalAmount(j)
+			}
+			amountTest = append(amountTest, amountTest1)
+		}
+		amountTest1 := amountTest
+		var hjamount float64
+		for _, h := range amountTest {
+			hjamount += h
+		}
+		var hjamount2 float64
+		for _, h := range RemoveMax(amountTest) {
+			hjamount2 += h
+		}
+
+		myLevel := GetMarketLevel(hjamount2)
+		if myLevel.Name > 0 && myLevel.Name <= LevelName {
+			fmt.Println("aaa", myLevel.Name)
+			var hjamount1 float64
+			for _, h := range amountTest1 {
+				hjamount1 += h
+			}
+
+			income = float64(hjamount1) * 0.01 * 0.4 * float64(myLevel.Percentage) / (100 * 0.6)
+			// 遍历根节点下的子节点
+			for _, child := range root.Children {
+				income += LowerLevelIncome(child.UserId)
+			}
+		}
+	}
+
+	return income
 }
 
 //func LevelReward() {
